@@ -13,3 +13,10 @@ Currently, the server-client communication is only implemented with OpenIgtLink 
 as OpenIgtlink Image Message and force data as OpenIgtlink Force Message. OpenIgtLink Status Messages are used to communicate 
 the client status and the kind of processing to be performed on the images. 
 The vertebral location is sent to the client as a OpenIgtlink Position message. 
+
+
+It was tested using:
+pytorch==1.4.0
+torchvision==0.5.0
+cuda==10.0
+(pip install torch==1.4.0+cu100 torchvision==0.5.0+cu100 -f https://download.pytorch.org/whl/torch_stable.html)

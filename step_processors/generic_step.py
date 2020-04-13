@@ -1,3 +1,4 @@
+__all__ = ['GenericStep']
 
 
 class GenericStep(object):

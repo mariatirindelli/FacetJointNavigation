@@ -8,14 +8,15 @@ import numpy as np
 import time
 from scipy.signal import butter, filtfilt
 import pandas as pd
+from SimulatedClient.DataReader import ForceUSSimulator
 
 SERVER_ADDRESS = "127.0.0.1"
 PORT = 9003
 
-v_data_dir = "/media/maria/Elements/Maria/DataBases/SpineIFL/SpinousProcessDb/SecondAcquisitionSession"
-v_subject_name = "MariaT_F10"
+v_data_dir = "/media/maria/Elements/Maria/DataBases/SpineIFL/SpinousProcessDb/SecondAcquisitionSession/MariaT_F10.imf"
 
 USE_FORCE = False
+
 
 def find_valid_indexes(y):
     smoothed_vel = np.squeeze(smooth(np.diff(y), 10))
@@ -120,6 +121,19 @@ def send_data(streamer_client, sweep, y_pos, force_data = None, use_force = Fals
 
     # todo: send step done message
 
+def do_smt(reader):
+    """
+    :param ForceUSSimulator reader: the reader object
+    """
+    while True:
+        ts_img, img = reader.get_img_data()
+        ts_force, force = reader.get_force_data()
+        ts_pose, pose = reader.get_pose_data()
+
+        if ts_img == -1:
+            break
+
+        # TODO: send data over openigtlink
 
 def main():
 
@@ -140,7 +154,7 @@ def main():
             sweep, y_pos, force_data = get_data(sweep_path, traj_path)
 
             status_msg = pygtlink.StatusMessage()
-            status_msg.setMessa
+            # status_msg.setMessa
 
 
             sensor_msg.setData([0, force, 0])

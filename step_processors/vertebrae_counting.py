@@ -5,11 +5,13 @@ import torch
 from scipy.interpolate import interp1d
 from scipy.signal import butter, filtfilt
 from scipy.spatial.transform import Rotation as R
-import os
+import numpy as np
+
+__all__ = ['VertebraeCounting']
 
 
 class VertebraeCounting(GenericStep):
-    def __init__(self, cnn_model_ckpt="", tcn_model_ckpt="", cnn_batch_size=34, use_force = True):
+    def __init__(self, cnn_model_ckpt="", tcn_model_ckpt="", cnn_batch_size=34, use_force=True):
         super(VertebraeCounting, self).__init__()
 
         self.name = "VertebraCountingStep"
@@ -27,10 +29,10 @@ class VertebraeCounting(GenericStep):
 
     def load_models(self, cnn_model_ckpt=None, tcn_model_ckpt=None):
 
-        if cnn_model_ckpt is None:
+        if cnn_model_ckpt is not None:
             self.cnn_model_ckpt = cnn_model_ckpt
 
-        if tcn_model_ckpt is None:
+        if tcn_model_ckpt is not None:
             self.tcn_model_ckpt = tcn_model_ckpt
 
         self.cnn_model = ResNet18(self.cnn_model_ckpt)
@@ -82,41 +84,48 @@ class VertebraeCounting(GenericStep):
 
         return
 
-    def tcn_preprocessing(self):
-        # only considering samples where the robot is already moving
-        y = np.array(self.data_dict["y"])
-        probs = np.array(self.data_dict["probs"])
-        force = np.array(self.data_dict["force"])
-
-        # re-sampling in an equally spaced space grid
-        y_eq = np.linspace(y[0], y[-1], y.size)
-
-        # re-interpolating probabilities
-        f1 = interp1d(y, probs)
-        probs_eq = f1(y_eq)
+    def preprocess_probs(self, y, probs, y_eq):
+        f = interp1d(y, probs)
+        probs_eq = f(y_eq)
 
         # smoothing probabilities
         smoothed_probs = self.smooth(probs_eq)
         smoothed_probs = np.expand_dims(smoothed_probs, axis=0)
+        return smoothed_probs
 
-        # re-interpolating force
+    def preprocess_force(self, y, force, y_eq):
+        f = interp1d(y, force)
+        force_eq = f(y_eq)
+
+        # smoothing and normalizing force
+        undrifted_force = self.undrift(force_eq)
+        smoothed_force = self.smooth(undrifted_force)
+        normalized_force = smoothed_force - np.min(smoothed_force)
+
+        if np.max(normalized_force) != 0:
+            normalized_force = normalized_force / np.max(normalized_force)
+        normalized_force = np.expand_dims(normalized_force, axis=0)
+        return normalized_force
+
+    def tcn_preprocessing(self, y, probs, force, t_probs=None, t_force=None):
+
+        # if timestamps are provided, also resample the force signal in the probabilities time grid
+        if self.use_force and t_probs is not None and t_force is not None:
+            f = interp1d(t_force, force)
+            force = f(t_probs)
+
+        # generating an equally sampled time grid
+        y_eq = np.linspace(y[0], y[-1], y.size)
+
+        # pre-process probabilities
+        prep_probs = self.preprocess_probs(y, probs, y_eq)
+
+        # pre-process force
         if self.use_force:
-            f2 = interp1d(y, force)
-            force_eq = f2(y_eq)
-
-            # smoothing and normalizing force
-            undrifted_force = self.undrift(force_eq)
-            smoothed_force = self.smooth(undrifted_force)
-            normalized_force = smoothed_force - np.min(smoothed_force)
-
-            if np.max(normalized_force) != 0:
-                normalized_force = normalized_force / np.max(normalized_force)
-            normalized_force = np.expand_dims(normalized_force, axis=0)
-
-            input_np = np.concatenate([smoothed_probs, normalized_force], axis=0)
-
+            prep_force = self.preprocess_force(y, force, y_eq)
+            input_np = np.concatenate([prep_probs, prep_force], axis=0)
         else:
-            input_np = smoothed_probs
+            input_np = prep_probs
 
         # converting to tensor and unsqueezing first dimension, cause batch size is 1
         input_tensor = torch.from_numpy(input_np).float()
@@ -125,7 +134,9 @@ class VertebraeCounting(GenericStep):
 
     def run_tcn(self):
 
-        data = self.tcn_preprocessing()
+        data = self.tcn_preprocessing(y=np.array(self.data_dict["y"]),
+                                      probs=np.array(self.data_dict["probs"]),
+                                      force=np.array(self.data_dict["force"]))
 
         predictions = self.tcn_model.model.forward(data.to("gpu"))
         p = predictions[-1].squeeze()  # only last layer -> -1
@@ -194,16 +205,3 @@ class VertebraeCounting(GenericStep):
         rot = R.from_matrix(matrix[0:3, 0:3])
         quat = rot.as_quat()
         return pos, quat
-
-
-            # vert_2 = np.where(vertebral_levels == DESIRED_LEVEL)[0]
-            #
-            # if vert_2.size > 0:
-            #     avg_2 = int(np.mean(vert_2))
-            #     position = pose_list[avg_2]
-            #     y_pos = y_eq[avg_2]
-            #     position[1, 3] = y_pos
-            #     return 1, position
-            #
-            # else:
-            #     return 2, None

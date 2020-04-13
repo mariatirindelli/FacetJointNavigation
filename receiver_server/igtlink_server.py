@@ -1,14 +1,13 @@
 from receiver_server import *
 import pygtlink
 
+__all__ = ['IGTLinkServer']
 
-class IGTLinkServer(SocketSpineServer):
+
+class IGTLinkServer(SocketServer):
 
     def __init__(self):
-        SocketSpineServer.__init__(self)
-        status_msg = pygtlink.StatusMessage()
-
-        print("smt")
+        SocketServer.__init__(self)
 
     def send_position(self, pos, quat):
         pos_msg = pygtlink.PositionMessage()
@@ -18,38 +17,7 @@ class IGTLinkServer(SocketSpineServer):
         pos_msg.pack()
         self.send_data(pos_msg.header + pos_msg.body)
 
-    def _handshake(self, s, address=None):
-
-        status_msg = pygtlink.StatusMessage()
-        res, status_msg.header = self._recvall(s, pygtlink.IGTL_HEADER_SIZE)
-
-        if not status_msg.unpack() == pygtlink.UNPACK_HEADER:
-            print("Error in unpacking header")
-            return None
-
-        res, status_msg.body = self._recvall(s, status_msg.getPackBodySize())
-
-        # if not status_msg.unpack() == pygtlink.UNPACK_BODY:
-        #     print("Error in unpacking body")
-        #     return None
-
-        # if status_msg.getCode() == 0:
-        #     print("Error in message: status code is 0")
-        #     return
-
-        if status_msg.getDeviceName() == "StreamerSocket":
-            self._data_socket = s
-            print("Connection with streamer established at ip:{}".format(address))
-
-        elif status_msg.getDeviceName() == "CommandSocket":
-            self._cmd_socket = s
-            print("Connection with commander established at ip:{}".format(address))
-
-        else:
-            print("Unrecognized device name - returning with error")
-            return
-
-    def _receive_data(self):
+    def receive_data(self):
 
         message = pygtlink.MessageBase()
 
@@ -86,7 +54,29 @@ class IGTLinkServer(SocketSpineServer):
                 return Data(valid=False)
             data = Data(sensor_data=sensorMsg.getData())
         else:
-            # TODO: handle this, would probably lead to an error
             return Data(valid=False)
 
         return data
+
+    def _handshake(self, s, address=None):
+
+        status_msg = pygtlink.StatusMessage()
+        res, status_msg.header = self._recvall(s, pygtlink.IGTL_HEADER_SIZE)
+
+        if not status_msg.unpack() == pygtlink.UNPACK_HEADER:
+            print("Error in unpacking header")
+            return None
+
+        res, status_msg.body = self._recvall(s, status_msg.getPackBodySize())
+
+        if status_msg.getDeviceName() == "StreamerSocket":
+            self._data_socket = s
+            print("Connection with streamer established at ip:{}".format(address))
+
+        elif status_msg.getDeviceName() == "CommandSocket":
+            self._cmd_socket = s
+            print("Connection with commander established at ip:{}".format(address))
+
+        else:
+            print("Unrecognized device name - returning with error")
+            return
